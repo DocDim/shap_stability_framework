@@ -1,0 +1,124 @@
+
+#####################################################################################
+   STARTING EXPERIMENTAL PIPELINE FOR: FINANCIAL (LOAN DEFAULT)
+#####################################################################################
+
+No cached model found at '/home/ubuntu/projects/shap_stability_framework/src/models/saved/best_model_finance.joblib' (or force_retrain=True). Starting training...
+=== Evaluating Algorithms via TimeSeriesSplit CV on Training Set (ROC_AUC) ===
+-> Random Forest         : Mean ROC_AUC = 0.6688 (+/- 0.0109)
+-> Gradient Boosting     : Mean ROC_AUC = 0.6826 (+/- 0.0103)
+-> Extra Trees           : Mean ROC_AUC = 0.6394 (+/- 0.0068)
+-> Logistic Regression   : Mean ROC_AUC = 0.6758 (+/- 0.0108)
+-> Naive Bayes           : Mean ROC_AUC = 0.5892 (+/- 0.0047)
+-> MLP Classifier        : Mean ROC_AUC = 0.6088 (+/- 0.0199)
+
+Winner Algorithm: 'Gradient Boosting' (CV Score: 0.6826)
+
+=== Final Holdout Test Metrics (Gradient Boosting) ===
+Accuracy: 0.7973
+AUC:      0.6878
+
+Model successfully saved to: /home/ubuntu/projects/shap_stability_framework/src/models/saved/best_model_finance.joblib
+
+--- Part 2: Parallel SHAP Experiments on Model ('Gradient Boosting') ---
+Running Baseline Experiment (30 iterations)...
+Running Approach 1: KMeans Background Selection...
+Running Approach 2: Penalized/Regularized Kernel Regression...
+Running Approach 3: Owen Values (Correlation Threshold = 0.5)...
+Running Approach 4: Hybrid (Owen Values + KMeans BG)...
+
+=====================================================================================
+   PART 3A: BENCHMARK VS BASELINE COMPARATIVE ANALYSIS [FINANCIAL (LOAN DEFAULT)]
+=====================================================================================
+                         Approach  ACV (Volatility) [Lower = Better]  Top-5 Jaccard Agreement [Higher = Better]  Wasserstein Dist vs Baseline  ACV Reduction vs Baseline (%)  Jaccard Gain vs Baseline (%)
+                         Baseline                             2.5547                                     1.0000                        0.0000                           0.00                           0.0
+           Approach 1 (KMeans BG)                             0.6027                                     1.0000                        0.0009                          76.41                           0.0
+        Approach 2 (Penalized L2)                             1.5078                                     0.7985                        0.0003                          40.98                           0.0
+         Approach 3 (Owen Values)                            12.3800                                     0.6910                        0.0005                        -384.60                           0.0
+Approach 4 (Hybrid Owen + KMeans)                            17.7516                                     0.8989                        0.0013                        -594.86                           0.0
+
+=====================================================================================
+   PART 3B: PAIRWISE ACV VOLATILITY DIFFERENCE MATRIX [FINANCIAL (LOAN DEFAULT)]
+   (Row vs Column: Positive Value = Row Approach is More Stable than Column)
+=====================================================================================
+                                  Baseline Approach 1 (KMeans BG) Approach 2 (Penalized L2) Approach 3 (Owen Values) Approach 4 (Hybrid Owen + KMeans)
+Baseline                               0.0                 -1.952                   -1.0469                   9.8253                           15.1969
+Approach 1 (KMeans BG)               1.952                    0.0                    0.9051                  11.7773                           17.1489
+Approach 2 (Penalized L2)           1.0469                -0.9051                       0.0                  10.8722                           16.2438
+Approach 3 (Owen Values)           -9.8253               -11.7773                  -10.8722                      0.0                            5.3716
+Approach 4 (Hybrid Owen + KMeans) -15.1969               -17.1489                  -16.2438                  -5.3716                               0.0
+
+-------------------------------------------------------------------------------------
+EXECUTIVE SUMMARY HIGHLIGHTS (Financial (Loan Default))
+-------------------------------------------------------------------------------------
+• Top Volatility Stabilizer: 'Approach 1 (KMeans BG)'
+  └─ Achieved 76.41% ACV volatility reduction vs. Baseline
+• Top Ranking Consistency:   'Approach 1 (KMeans BG)'
+  └─ Achieved 1.0 Top-5 Jaccard Agreement (0.0% gain vs. Baseline)
+=====================================================================================
+
+[financial] Raw SHAP iteration arrays saved to: outputs/shap_runs/
+[financial] Volatility boxplot saved to: outputs/figures/financial_attribution_volatility_boxplot.png
+[financial] Comparative bar chart saved to: outputs/figures/financial_benchmark_metrics_barchart.png
+
+#####################################################################################
+   STARTING EXPERIMENTAL PIPELINE FOR: CLINICAL (READMISSION RISK)
+#####################################################################################
+
+No cached model found at '/home/ubuntu/projects/shap_stability_framework/src/models/saved/best_model_clinical.joblib' (or force_retrain=True). Starting training...
+=== Evaluating Algorithms via TimeSeriesSplit CV on Training Set (ROC_AUC) ===
+-> Random Forest         : Mean ROC_AUC = 0.6361 (+/- 0.0116)
+-> Gradient Boosting     : Mean ROC_AUC = 0.6657 (+/- 0.0086)
+-> Extra Trees           : Mean ROC_AUC = 0.6173 (+/- 0.0108)
+-> Logistic Regression   : Mean ROC_AUC = 0.6627 (+/- 0.0085)
+-> Naive Bayes           : Mean ROC_AUC = 0.5124 (+/- 0.0011)
+-> MLP Classifier        : Mean ROC_AUC = 0.5732 (+/- 0.0198)
+
+Winner Algorithm: 'Gradient Boosting' (CV Score: 0.6657)
+
+=== Final Holdout Test Metrics (Gradient Boosting) ===
+Accuracy: 0.8885
+AUC:      0.6819
+
+Model successfully saved to: /home/ubuntu/projects/shap_stability_framework/src/models/saved/best_model_clinical.joblib
+
+--- Part 2: Parallel SHAP Experiments on Model ('Gradient Boosting') ---
+Running Baseline Experiment (30 iterations)...
+Running Approach 1: KMeans Background Selection...
+Running Approach 2: Penalized/Regularized Kernel Regression...
+Running Approach 3: Owen Values (Correlation Threshold = 0.4)...
+Running Approach 4: Hybrid (Owen Values + KMeans BG)...
+
+=====================================================================================
+   PART 3A: BENCHMARK VS BASELINE COMPARATIVE ANALYSIS [CLINICAL (READMISSION RISK)]
+=====================================================================================
+                         Approach  ACV (Volatility) [Lower = Better]  Top-5 Jaccard Agreement [Higher = Better]  Wasserstein Dist vs Baseline  ACV Reduction vs Baseline (%)  Jaccard Gain vs Baseline (%)
+                         Baseline                             1.0855                                     0.9778                        0.0000                           0.00                          0.00
+           Approach 1 (KMeans BG)                             0.1017                                     1.0000                        0.0006                          90.63                        100.00
+        Approach 2 (Penalized L2)                             1.1059                                     0.7748                        0.0002                          -1.88                       -914.37
+         Approach 3 (Owen Values)                             5.4647                                     0.4489                        0.0005                        -403.43                      -2382.33
+Approach 4 (Hybrid Owen + KMeans)                             9.1997                                     0.7124                        0.0005                        -747.51                      -1195.44
+
+=====================================================================================
+   PART 3B: PAIRWISE ACV VOLATILITY DIFFERENCE MATRIX [CLINICAL (READMISSION RISK)]
+   (Row vs Column: Positive Value = Row Approach is More Stable than Column)
+=====================================================================================
+                                  Baseline Approach 1 (KMeans BG) Approach 2 (Penalized L2) Approach 3 (Owen Values) Approach 4 (Hybrid Owen + KMeans)
+Baseline                               0.0                -0.9838                    0.0204                   4.3792                            8.1142
+Approach 1 (KMeans BG)              0.9838                    0.0                    1.0042                    5.363                             9.098
+Approach 2 (Penalized L2)          -0.0204                -1.0042                       0.0                   4.3588                            8.0938
+Approach 3 (Owen Values)           -4.3792                 -5.363                   -4.3588                      0.0                             3.735
+Approach 4 (Hybrid Owen + KMeans)  -8.1142                 -9.098                   -8.0938                   -3.735                               0.0
+
+-------------------------------------------------------------------------------------
+EXECUTIVE SUMMARY HIGHLIGHTS (Clinical (Readmission Risk))
+-------------------------------------------------------------------------------------
+• Top Volatility Stabilizer: 'Approach 1 (KMeans BG)'
+  └─ Achieved 90.63% ACV volatility reduction vs. Baseline
+• Top Ranking Consistency:   'Approach 1 (KMeans BG)'
+  └─ Achieved 1.0 Top-5 Jaccard Agreement (100.0% gain vs. Baseline)
+=====================================================================================
+
+[clinical] Raw SHAP iteration arrays saved to: outputs/shap_runs/
+[clinical] Volatility boxplot saved to: outputs/figures/clinical_attribution_volatility_boxplot.png
+[clinical] Comparative bar chart saved to: outputs/figures/clinical_benchmark_metrics_barchart.png

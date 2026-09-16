@@ -1,0 +1,94 @@
+
+#####################################################################################
+   STARTING EXPERIMENTAL PIPELINE FOR: FINANCIAL (LOAN DEFAULT)
+#####################################################################################
+--> Found existing saved model at: /home/ubuntu/projects/shap_stability_framework/src/models/saved/best_model_finance.joblib
+--> Skipping cross-validation and training.
+
+--- Part 2: Parallel SHAP Experiments on Model ('GradientBoostingClassifier') ---
+Running Baseline Experiment (30 iterations)...
+Running Approach 1: KMeans Background Selection...
+Running Approach 2: Penalized/Regularized Kernel Regression...
+Running Approach 3: Owen Values (Correlation Threshold = 0.5)...
+Running Approach 4: Hybrid (Owen Values + KMeans BG)...
+
+=====================================================================================
+   PART 3A: BENCHMARK VS BASELINE COMPARATIVE ANALYSIS [FINANCIAL (LOAN DEFAULT)]
+=====================================================================================
+                         Approach  ACV (Volatility) [Lower = Better]  Top-5 Jaccard Agreement [Higher = Better]  Wasserstein Dist vs Baseline  ACV Reduction vs Baseline (%)  Jaccard Gain vs Baseline (%)
+                         Baseline                             2.7795                                     1.0000                        0.0000                           0.00                           0.0
+           Approach 1 (KMeans BG)                             1.3014                                     1.0000                        0.0009                          53.18                           0.0
+        Approach 2 (Penalized L2)                             5.5463                                     0.6684                        0.0005                         -99.54                           0.0
+         Approach 3 (Owen Values)                             0.0000                                     1.0000                        0.0012                         100.00                           0.0
+Approach 4 (Hybrid Owen + KMeans)                             0.0000                                     1.0000                        0.0012                         100.00                           0.0
+
+=====================================================================================
+   PART 3B: PAIRWISE ACV VOLATILITY DIFFERENCE MATRIX [FINANCIAL (LOAN DEFAULT)]
+   (Row vs Column: Positive Value = Row Approach is More Stable than Column)
+=====================================================================================
+                                  Baseline Approach 1 (KMeans BG) Approach 2 (Penalized L2) Approach 3 (Owen Values) Approach 4 (Hybrid Owen + KMeans)
+Baseline                               0.0                -1.4781                    2.7668                  -2.7795                           -2.7795
+Approach 1 (KMeans BG)              1.4781                    0.0                    4.2449                  -1.3014                           -1.3014
+Approach 2 (Penalized L2)          -2.7668                -4.2449                       0.0                  -5.5463                           -5.5463
+Approach 3 (Owen Values)            2.7795                 1.3014                    5.5463                      0.0                               0.0
+Approach 4 (Hybrid Owen + KMeans)   2.7795                 1.3014                    5.5463                      0.0                               0.0
+
+-------------------------------------------------------------------------------------
+EXECUTIVE SUMMARY HIGHLIGHTS (Financial (Loan Default))
+-------------------------------------------------------------------------------------
+• Top Volatility Stabilizer: 'Approach 4 (Hybrid Owen + KMeans)'
+  └─ Achieved 100.0% ACV volatility reduction vs. Baseline
+• Top Ranking Consistency:   'Approach 1 (KMeans BG)'
+  └─ Achieved 1.0 Top-5 Jaccard Agreement (0.0% gain vs. Baseline)
+=====================================================================================
+
+[financial] Raw SHAP iteration arrays saved to: outputs/shap_runs/
+[financial] Volatility boxplot saved to: outputs/figures/financial_attribution_volatility_boxplot.png
+[financial] Comparative bar chart saved to: outputs/figures/financial_benchmark_metrics_barchart.png
+
+#####################################################################################
+   STARTING EXPERIMENTAL PIPELINE FOR: CLINICAL (READMISSION RISK)
+#####################################################################################
+--> Found existing saved model at: /home/ubuntu/projects/shap_stability_framework/src/models/saved/best_model_clinical.joblib
+--> Skipping cross-validation and training.
+
+--- Part 2: Parallel SHAP Experiments on Model ('GradientBoostingClassifier') ---
+Running Baseline Experiment (30 iterations)...
+Running Approach 1: KMeans Background Selection...
+Running Approach 2: Penalized/Regularized Kernel Regression...
+Running Approach 3: Owen Values (Correlation Threshold = 0.4)...
+Running Approach 4: Hybrid (Owen Values + KMeans BG)...
+
+=====================================================================================
+   PART 3A: BENCHMARK VS BASELINE COMPARATIVE ANALYSIS [CLINICAL (READMISSION RISK)]
+=====================================================================================
+                         Approach  ACV (Volatility) [Lower = Better]  Top-5 Jaccard Agreement [Higher = Better]  Wasserstein Dist vs Baseline  ACV Reduction vs Baseline (%)  Jaccard Gain vs Baseline (%)
+                         Baseline                             1.3921                                     0.9778                        0.0000                           0.00                          0.00
+           Approach 1 (KMeans BG)                             0.4593                                     1.0000                        0.0006                          67.01                        100.00
+        Approach 2 (Penalized L2)                             1.5325                                     0.4602                        0.0004                         -10.09                      -2331.43
+         Approach 3 (Owen Values)                             0.0000                                     1.0000                        0.0005                         100.00                        100.00
+Approach 4 (Hybrid Owen + KMeans)                             0.0000                                     1.0000                        0.0005                         100.00                        100.00
+
+=====================================================================================
+   PART 3B: PAIRWISE ACV VOLATILITY DIFFERENCE MATRIX [CLINICAL (READMISSION RISK)]
+   (Row vs Column: Positive Value = Row Approach is More Stable than Column)
+=====================================================================================
+                                  Baseline Approach 1 (KMeans BG) Approach 2 (Penalized L2) Approach 3 (Owen Values) Approach 4 (Hybrid Owen + KMeans)
+Baseline                               0.0                -0.9328                    0.1404                  -1.3921                           -1.3921
+Approach 1 (KMeans BG)              0.9328                    0.0                    1.0732                  -0.4593                           -0.4593
+Approach 2 (Penalized L2)          -0.1404                -1.0732                       0.0                  -1.5325                           -1.5325
+Approach 3 (Owen Values)            1.3921                 0.4593                    1.5325                      0.0                               0.0
+Approach 4 (Hybrid Owen + KMeans)   1.3921                 0.4593                    1.5325                      0.0                               0.0
+
+-------------------------------------------------------------------------------------
+EXECUTIVE SUMMARY HIGHLIGHTS (Clinical (Readmission Risk))
+-------------------------------------------------------------------------------------
+• Top Volatility Stabilizer: 'Approach 4 (Hybrid Owen + KMeans)'
+  └─ Achieved 100.0% ACV volatility reduction vs. Baseline
+• Top Ranking Consistency:   'Approach 1 (KMeans BG)'
+  └─ Achieved 1.0 Top-5 Jaccard Agreement (100.0% gain vs. Baseline)
+=====================================================================================
+
+[clinical] Raw SHAP iteration arrays saved to: outputs/shap_runs/
+[clinical] Volatility boxplot saved to: outputs/figures/clinical_attribution_volatility_boxplot.png
+[clinical] Comparative bar chart saved to: outputs/figures/clinical_benchmark_metrics_barchart.png

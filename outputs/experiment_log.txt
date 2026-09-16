@@ -1,0 +1,33 @@
+--- Part 1: Preprocessing Pipeline & Multi-Model Selection ---
+Loading real data via preprocessing pipeline from: E:\HOOD\Research\shap_stability_framework\data\lendingclub_raw.csv
+=== Evaluating Algorithms via TimeSeriesSplit CV on Training Set (ROC_AUC) ===
+-> Random Forest         : Mean ROC_AUC = 0.6626 (+/- 0.0124)
+-> Gradient Boosting     : Mean ROC_AUC = 0.6826 (+/- 0.0103)
+-> Extra Trees           : Mean ROC_AUC = 0.6394 (+/- 0.0068)
+-> Logistic Regression   : Mean ROC_AUC = 0.6758 (+/- 0.0108)
+-> Naive Bayes           : Mean ROC_AUC = 0.5892 (+/- 0.0047)
+-> MLP Classifier        : Mean ROC_AUC = 0.6088 (+/- 0.0199)
+
+Winner Algorithm: 'Gradient Boosting' (CV Score: 0.6826)
+
+=== Final Holdout Test Metrics (Gradient Boosting) ===
+Accuracy: 0.7973
+AUC:      0.6878
+
+Model saved to: E:\HOOD\Research\shap_stability_framework\src\models\saved\best_model.joblib
+
+--- Part 2: Parallel Experiments Core (Winning Model: 'Gradient Boosting') ---
+Executing Baseline Experiment (30 iterations)...
+Executing Approach 1: KMeans Background Selection...
+Executing Approach 2: Penalized/Regularized Kernel Regression...
+Executing Approach 3: Owen Values (Feature Coalitions)...
+Executing Approach 4: Hybrid (Owen Values + KMeans BG)...
+
+--- Part 3: Quantitative Stability Comparative Analysis ---
+
+                          Approach  ACV (Volatility) [Lower = Better]  Top-5 Jaccard Agreement [Higher = Better]  Wasserstein Dist vs Baseline
+                         Baseline                             5.0866                                     1.0000                        0.0000
+           Approach 1 (KMeans BG)                             0.3790                                     1.0000                        0.0009
+        Approach 2 (Penalized L2)                             2.7173                                     0.7096                        0.0004
+         Approach 3 (Owen Values)                             0.3511                                     0.9778                        0.0009
+Approach 4 (Hybrid Owen + KMeans)                             0.3183                                     1.0000                        0.0009
