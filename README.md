@@ -18,7 +18,7 @@ This framework implements:
    * **Approach 4:** Hybrid Optimization (Owen Values + \$K\$-Means Background Summarization)
 4. **Three-Dimensional Quantitative Evaluation**:
    * **\$V1\$:** Feature Association Coefficient of Variation (ACV Volatility)
-   * **\$V2\$:** Top-\$k\$ Jaccard Rank Agreement Consistency
+   * **\$V2\$:** Top- \$k\$ Jaccard Rank Agreement Consistency
    * **\$V3\$:** Attribution Distribution Fidelity (Wasserstein Distance vs. Baseline)
 
 ---
@@ -103,7 +103,7 @@ python main.py
 | Metric | Scope | Target | Legal & Regulatory Context |
 | :--- | :--- | :---: | :--- |
 | **ACV (Volatility)** | Measures numerical variance of feature scores across repeated runs on the exact same instance. | **Lower** (\$\rightarrow 0.0\$) | Guarantees numerical repeatability under regulatory audits (GDPR Art. 22). |
-| **Top-\$k\$ Jaccard Agreement** | Quantifies the overlap and rank consistency of the top \$k\$ key decision factors. | **Higher** (\$\rightarrow 1.0\$) | Ensures Adverse Action Notices consistently cite the same primary denial/risk factors. |
+| **Top- \$k\$ Jaccard Agreement** | Quantifies the overlap and rank consistency of the top \$k\$ key decision factors. | **Higher** (\$\rightarrow 1.0\$) | Ensures Adverse Action Notices consistently cite the same primary denial/risk factors. |
 | **Wasserstein Distance** | Measures the earth mover's distance between stabilized attributions and baseline distributions. | **Fidelity Check** | Verifies that noise reduction did not distort the model's true underlying prediction profile. |
 
 ---
