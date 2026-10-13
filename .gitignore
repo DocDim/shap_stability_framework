@@ -1,3 +1,6 @@
 /data/*.txt
 /data/*.csv
 /output/*
+/models/*.joblib"src/models/saved/*.joblib" 
+"outputs/*.csv" 
+"src/models/saved/*.joblib" 

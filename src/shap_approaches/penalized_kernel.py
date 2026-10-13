@@ -6,9 +6,10 @@ from src.shap_approaches.base import BaseSHAPApproach
 
 class PenalizedKernelSHAP(BaseSHAPApproach):
     def run_iteration(self, target_instance, n_samples=200) -> np.ndarray:
-        bg_sample = self.background_data.sample(n=min(50, len(self.background_data)), replace=False)
+        bg_sample = self._sample_background(50)
         explainer = shap.KernelExplainer(self.model.predict_proba, bg_sample)
-        
+
+        # Note: l1_reg="auto" is L1 (Lasso/AIC) feature selection, not an L2 ridge penalty.
         shap_values = explainer.shap_values(
             target_instance,
             nsamples=n_samples,
