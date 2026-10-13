@@ -93,7 +93,7 @@ def run_financial_experiment_pipeline(force_retrain: bool = False):
     approaches = {
         "Baseline": baseline_runs,
         "Approach 1 (KMeans BG)": app1_runs,
-        "Approach 2 (Penalized L2)": app2_runs,
+        "Approach 2 (L1 Lasso)": app2_runs,
         "Approach 3 (Owen Values)": app3_runs,
         "Approach 4 (Hybrid Owen + KMeans)": app4_runs
     }

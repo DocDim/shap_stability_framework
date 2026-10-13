@@ -7,9 +7,16 @@ class BaseSHAPApproach(ABC):
     """
     Abstract Base Class for repeated SHAP stability experiments.
     """
-    def __init__(self, model, background_data):
+    def __init__(self, model, background_data, random_state=None):
         self.model = model
         self.background_data = background_data
+        self.rng = np.random.default_rng(random_state)
+
+    def _sample_background(self, n=50):
+        """Draws a fresh background subsample each call (no fixed seed per iteration)."""
+        n = min(n, len(self.background_data))
+        idx = self.rng.choice(len(self.background_data), size=n, replace=False)
+        return self.background_data.iloc[idx]
 
     @abstractmethod
     def run_iteration(self, target_instance, n_samples=200) -> np.ndarray:

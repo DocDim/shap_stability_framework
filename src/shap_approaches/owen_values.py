@@ -8,8 +8,8 @@ import shap
 
 
 class OwenValuesKernelSHAP(BaseSHAPApproach):
-    def __init__(self, model, background_data, correlation_threshold=0.5):
-        super().__init__(model, background_data)
+    def __init__(self, model, background_data, correlation_threshold=0.5, random_state=None):
+        super().__init__(model, background_data, random_state=random_state)
         self.correlation_threshold = correlation_threshold
         self.coalition_labels = self._build_feature_coalitions(background_data)
         self.unique_coalitions = np.unique(self.coalition_labels)
@@ -59,7 +59,8 @@ class OwenValuesKernelSHAP(BaseSHAPApproach):
                 active_mask = (z_coalitions[:, c_idx] == 1)
                 if np.any(active_mask):
                     active_eval_indices = np.repeat(active_mask, n_bg)
-                    X_eval[active_eval_indices, :][:, feat_indices] = target_vec[feat_indices]
+                    # Single indexing step: chained X[rows, :][:, cols] = v writes to a copy
+                    X_eval[np.ix_(active_eval_indices, feat_indices)] = target_vec[feat_indices]
 
             probs = self.model.predict_proba(X_eval)
             p1 = probs[:, 1] if probs.ndim == 2 else probs
@@ -68,7 +69,7 @@ class OwenValuesKernelSHAP(BaseSHAPApproach):
         return coalition_predict
 
     def run_iteration(self, target_instance, n_samples=200) -> np.ndarray:
-        bg_sample = self.background_data.sample(n=min(50, len(self.background_data)), replace=False)
+        bg_sample = self._sample_background(50)
         target_row = target_instance.to_numpy() if isinstance(target_instance, pd.DataFrame) else target_instance
 
         coalition_pred_fn = self._make_coalition_predict(bg_sample, target_row)

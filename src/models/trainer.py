@@ -1,7 +1,7 @@
 # src/models/trainer.py
 import os
 import joblib
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, ExtraTreesClassifier
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.naive_bayes import GaussianNB
 from sklearn.neural_network import MLPClassifier
@@ -20,9 +20,8 @@ class ModelManager:
 
     def get_candidate_models(self):
         return {
-            "Random Forest": RandomForestClassifier(n_estimators=100, random_state=42, class_weight="balanced"),
+            "Random Forest": RandomForestClassifier(n_estimators=100, random_state=42, class_weight="balanced", n_jobs=-1),
             "Gradient Boosting": GradientBoostingClassifier(n_estimators=100, random_state=42),
-            "Extra Trees": ExtraTreesClassifier(n_estimators=100, random_state=42, class_weight="balanced"),
             "Logistic Regression": LogisticRegression(max_iter=1000, random_state=42, class_weight="balanced"),
             "Naive Bayes": GaussianNB(),
             "MLP Classifier": MLPClassifier(hidden_layer_sizes=(64, 32), max_iter=500, random_state=42)
@@ -79,6 +78,29 @@ class ModelManager:
         print(f"Model successfully saved to: {self.model_path}")
         
         return self.model_path, best_name
+
+    def train_all_models(self, X_train, X_test, y_train, y_test, domain_tag, force_retrain=False):
+        """
+        Fits every candidate model (no CV selection) and caches each one as
+        '<domain_tag>_<model_slug>.joblib'. Returns {name: (model, holdout_auc)}.
+        """
+        fitted = {}
+        for name, clf in self.get_candidate_models().items():
+            slug = name.lower().replace(" ", "_")
+            path = os.path.join(self.model_dir, f"{domain_tag}_{slug}.joblib")
+
+            if os.path.exists(path) and not force_retrain:
+                clf = joblib.load(path)
+                print(f"--> Loaded cached '{name}' from: {path}")
+            else:
+                print(f"--> Training '{name}'...")
+                clf.fit(X_train, y_train)
+                joblib.dump(clf, path)
+
+            auc = roc_auc_score(y_test, clf.predict_proba(X_test)[:, 1])
+            print(f"    {name:<22} holdout AUC = {auc:.4f}")
+            fitted[name] = (clf, auc)
+        return fitted
 
     def load_model(self):
         return joblib.load(self.model_path)

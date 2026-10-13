@@ -26,6 +26,9 @@ class HybridOwenKMeansKernelSHAP(BaseSHAPApproach):
         df = data if isinstance(data, pd.DataFrame) else pd.DataFrame(data)
         kmeans = KMeans(n_clusters=self.n_clusters, random_state=42, n_init=10)
         kmeans.fit(df.values)
+        # Weight centroids by cluster size so the summary matches the data distribution
+        counts = np.bincount(kmeans.labels_, minlength=self.n_clusters)
+        self.bg_weights = counts / counts.sum()
         return pd.DataFrame(kmeans.cluster_centers_, columns=df.columns)
 
     def _build_feature_coalitions(self, data):
@@ -69,11 +72,12 @@ class HybridOwenKMeansKernelSHAP(BaseSHAPApproach):
                 active_mask = (z_coalitions[:, c_idx] == 1)
                 if np.any(active_mask):
                     active_eval_indices = np.repeat(active_mask, n_bg)
-                    X_eval[active_eval_indices, :][:, feat_indices] = target_vec[feat_indices]
+                    # Single indexing step: chained X[rows, :][:, cols] = v writes to a copy
+                    X_eval[np.ix_(active_eval_indices, feat_indices)] = target_vec[feat_indices]
 
             probs = self.model.predict_proba(X_eval)
             p1 = probs[:, 1] if probs.ndim == 2 else probs
-            return p1.reshape(n_evals, n_bg).mean(axis=1)
+            return p1.reshape(n_evals, n_bg) @ self.bg_weights
 
         return coalition_predict
 

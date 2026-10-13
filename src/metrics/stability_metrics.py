@@ -28,6 +28,16 @@ class StabilityEvaluator:
         return np.mean(jaccard_scores)
 
     @staticmethod
+    def calculate_attribution_sum(shap_runs):
+        """Efficiency check: mean over runs of sum(phi), which should approximate f(x) - E[f(X)]."""
+        return float(np.mean(np.sum(shap_runs, axis=1)))
+
+    @staticmethod
+    def is_degenerate(shap_runs, tol=1e-8):
+        """True when every attribution is ~0 (ACV/Jaccard become trivially perfect)."""
+        return bool(np.all(np.abs(shap_runs) < tol))
+
+    @staticmethod
     def calculate_wasserstein_distance(baseline_runs, approach_runs):
         """V3: Distance Metrics (Wasserstein Distance relative to Baseline)[cite: 1]."""
         n_features = baseline_runs.shape[1]

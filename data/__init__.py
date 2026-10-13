@@ -7,5 +7,5 @@ __all__ = [
     "download_financial_data",
     "download_clinical_data",
     "load_preprocessed_finance_dataset",
-    "load_preprocessed_clinical_dataset",
+    "load_clinical_dataset",
 ]

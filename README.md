@@ -10,10 +10,10 @@ Post-hoc explanation methods like KernelSHAP are widely deployed to meet adverse
 
 This framework implements:
 1. **End-to-End Leakage-Free Preprocessing Pipelines** for Financial and Clinical domains (including Population Stability Index audits and temporal/stratified split integrity).
-2. **Multi-Model Selection** with expanding-window `TimeSeriesSplit` cross-validation.
+2. **Multi-Model Benchmark**: every predefined model (Random Forest, Gradient Boosting, Logistic Regression, Naive Bayes, MLP) is trained and explained — no model selection step.
 3. **Four Distinct Post-Hoc Stability Interventions**:
    * **Approach 1:** Background Data Summarization (\$K\$-Means Centroids)
-   * **Approach 2:** Regularized Kernel Regression (\$L2\$ Ridge Penalty)
+   * **Approach 2:** Regularized Kernel Regression (L1 / Lasso-AIC feature selection via `l1_reg="auto"`)
    * **Approach 3:** Coalitional Feature Grouping (Owen Values via Hierarchical Correlation Clustering)
    * **Approach 4:** Hybrid Optimization (Owen Values + \$K\$-Means Background Summarization)
 4. **Three-Dimensional Quantitative Evaluation**:
@@ -45,7 +45,7 @@ shap_stability_framework/
 │   ├── base.py                        # Abstract base class for repeated SHAP experimentation
 │   ├── baseline.py                    # Standard KernelSHAP implementation
 │   ├── background_sampling.py         # Approach 1: KMeans Background Centroids
-│   ├── penalized_kernel.py            # Approach 2: L2 Regularized Regression
+│   ├── penalized_kernel.py            # Approach 2: L1 (Lasso) Regularized Regression
 │   ├── owen_values.py                 # Approach 3: Hierarchical Owen Values
 │   └── hybrid_owen_kmeans.py          # Approach 4: Hybrid Owen + KMeans
 ├── metrics/
@@ -116,6 +116,6 @@ python main.py
 4. **Step 4 — Domain-Specific Encoding:** Ordinal mapping for bin categories and one-hot encoding for nominal categories.
 5. **Step 5 — Leakage-Free Splitting:** Enforces Out-of-Time temporal splitting (`SPLIT_DATE = 2014-01-01`) for Finance and stratified splitting for Clinical.
 6. **Step 6 — Scaler/Imputer Fit on Train Only:** Imputes missing values, scales continuous variables, and audits Population Stability Index (PSI) drift.
-7. **Model Selection:** Cross-validates Random Forest, Gradient Boosting, Extra Trees, Logistic Regression, Naive Bayes, and MLP Classifiers using `TimeSeriesSplit` before persisting the winning estimator.
-8. **Parallel SHAP Interventions:** Evaluates the winning model across 30 repeated runs with a 200-sample computational budget.
+7. **Model Training:** Fits Random Forest, Gradient Boosting, Logistic Regression, Naive Bayes, and MLP Classifiers on the training split and caches each as `src/models/saved/<domain>_<model>.joblib` (holdout AUC is logged; no selection).
+8. **Parallel SHAP Interventions:** Explains each model with all five approaches across 30 repeated runs at budgets (`nsamples`) of 20, 50, 100 and 150. Every attribution is appended to `outputs/experiments_all.csv` (long format: `domain, model, model_test_auc, budget, approach, iteration, feature, shap_value, f_x, expected_f, status`); re-running `main.py` resumes and skips completed model × budget combinations.
 9. **Comparative Analysis:** Generates pairwise difference matrices and percentage gain summaries across all strategies.
