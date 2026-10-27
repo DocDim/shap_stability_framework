@@ -12,6 +12,7 @@ from src.shap_approaches import (
     summarize_background,
     build_summary_pool,
     build_feature_hierarchy,
+    full_traversal_evals,
     replicate_by_weight,
 )
 
@@ -85,9 +86,10 @@ def test_owen_reference_explores_full_tree_with_shared_hierarchy(synthetic):
     small_bg = X.iloc[:20]
     ref = OwenValuesSHAP(model, small_bg, background_size=20, clustering=clustering)
     assert ref.clustering is clustering
-    budget = 4 * X.shape[1] ** 2
+    budget = full_traversal_evals(clustering) + 3
     expl = ref.run_iteration(target, n_samples=budget)
-    assert expl.n_coalitions < budget  # queue emptied before the budget ran out: exact
+    # The predicted cost is exactly what shap spends exploring the whole tree (+2 outside the recursion)
+    assert expl.n_coalitions == full_traversal_evals(clustering) + 2 < budget
     # Deterministic for a fixed background (order of rows does not matter)
     np.testing.assert_allclose(ref.run_iteration(target, n_samples=budget).phi, expl.phi, atol=1e-12)
 
@@ -96,7 +98,18 @@ def test_hierarchy_merges_correlated_features_first(synthetic):
     _, X, _ = synthetic
     Z = build_feature_hierarchy(X)
     assert Z.shape == (X.shape[1] - 1, 4)
-    assert sorted(Z[0, :2].astype(int)) == [0, 1]
+    pairs = [sorted(row[:2].astype(int)) for row in Z]
+    assert [0, 1] in pairs  # the correlated pair is its own subtree
+    assert Z[-1, 3] == X.shape[1]
+
+
+def test_hierarchy_is_balanced_so_exact_owen_values_are_affordable():
+    # Nearly independent features: the raw average-linkage dendrogram chains them into a deep tree
+    rng = np.random.default_rng(1)
+    X = pd.DataFrame(rng.standard_normal((300, 64)))
+    Z = build_feature_hierarchy(X)
+    assert Z[-1, 2] <= 7  # ceil(log2(64)) + 1
+    assert full_traversal_evals(Z) <= 64 ** 2
 
 
 def test_owen_values_give_correlated_features_their_own_credit(synthetic):

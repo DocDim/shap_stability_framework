@@ -32,10 +32,12 @@ CLINICAL_EXCLUDED_DISCHARGE_IDS = [11, 13, 14, 19, 20, 21]
 
 # Experiment grid
 DOMAINS = ["financial", "clinical"]
-EXPERIMENT_VERSION = 5          # Bump when approach code changes so old results are not resumed
+EXPERIMENT_VERSION = 6          # Bump when approach code changes so old results are not resumed
 N_ITERATIONS = 30               # Repeated explanations per instance
 N_INSTANCES = 20                # Test instances per model, spread across the predicted-risk range
-BUDGET_MULTIPLIERS = [1, 2, 4, 8]  # KernelSHAP nsamples = multiplier x n_features
+# KernelSHAP nsamples = multiplier x n_features. Starts at 2x: at 1x the KernelSHAP regression
+# has about as many coalitions as unknowns and is singular, so attributions can explode.
+BUDGET_MULTIPLIERS = [2, 4, 8]
 BACKGROUND_SIZE = 50            # Rows resampled per iteration (Baseline, L1, Owen)
 N_BG_CLUSTERS = 10              # KMeans background size (Approaches 1 and 4)
 BACKGROUND_SUMMARY = "medoids"  # "medoids" (real records) or "centroids"
@@ -47,10 +49,12 @@ BOOTSTRAP_SUMMARIES = True
 # Approach 4: the Partition masker averages its background uniformly, so the weighted
 # KMeans summary is replicated into this many rows in proportion to cluster size
 OWEN_KMEANS_BACKGROUND_ROWS = 100
+# Approaches 3 and 4: features whose average-linkage distance 1 - |corr| is below this form
+# one coalition group; groups and their members are joined in a balanced binary tree
+OWEN_GROUP_DISTANCE = 0.5
 # Fidelity references: one per estimand, both on the same fixed background so they differ
 # only in what they estimate
 REFERENCE_BACKGROUND_SIZE = 200  # Fixed background rows shared by both references
 REFERENCE_REPEATS = 3            # Shapley reference repeats (different seeds) to measure its own noise
-REFERENCE_OWEN_EVALS_FACTOR = 4  # Owen reference max_evals = factor x n_features^2 (full tree needs ~1.2 x M^2)
 TOP_K = 5                     # Jaccard top-k
 MIN_MODEL_AUC = 0.55            # Models below this are flagged in the analysis

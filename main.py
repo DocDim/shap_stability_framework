@@ -28,7 +28,9 @@ from src.shap_approaches import (
     OwenValuesSHAP,
     HybridOwenKMeansSHAP,
     RepeatedRuns,
+    build_feature_hierarchy,
     build_summary_pool,
+    full_traversal_evals,
 )
 from src.metrics.results import PHI_PREFIX, REFERENCE, per_instance_metrics
 
@@ -48,8 +50,8 @@ def setup_logging():
     logging.captureWarnings(True)
     # KernelExplainer passes NumPy arrays to models fitted on DataFrames
     warnings.filterwarnings("ignore", message="X does not have valid feature names")
-    # Expected at budgets near n_features (the 1x multiplier): the KernelSHAP regression is
-    # underdetermined and LARS drops collinear coalitions. Logged per call, they would flood the log.
+    # Expected when a sampled coalition matrix is rank-deficient (likelier at low budgets) and when
+    # LARS drops collinear coalitions. Logged per call, they would flood the log.
     warnings.filterwarnings("ignore", message="Linear regression equation is singular")
     warnings.filterwarnings("ignore", message="Regressors in active set degenerate")
     warnings.filterwarnings("ignore", message="Early stopping the lars path")
@@ -74,7 +76,7 @@ def run_config(domain_tag: str) -> dict:
         "owen_kmeans_background_rows": config.OWEN_KMEANS_BACKGROUND_ROWS,
         "reference_background_size": config.REFERENCE_BACKGROUND_SIZE,
         "reference_repeats": config.REFERENCE_REPEATS,
-        "reference_owen_evals_factor": config.REFERENCE_OWEN_EVALS_FACTOR,
+        "owen_group_distance": config.OWEN_GROUP_DISTANCE,
         "domain": domain_tag,
     }
 
@@ -99,16 +101,18 @@ def load_summary_pool(X_train, run_dir):
     return pool
 
 
-def build_approaches(X_train, summary_pool):
-    # Feature hierarchies and KMeans summaries depend only on X_train, so build each approach
+def build_approaches(X_train, summary_pool, clustering):
+    # The feature hierarchy and KMeans summaries depend only on X_train, so build each approach
     # once per domain and swap in the model being explained.
     return {
         "Baseline": BaselineKernelSHAP(None, X_train, background_size=config.BACKGROUND_SIZE),
         "Approach 1 (KMeans BG)": KMeansBackgroundKernelSHAP(None, X_train, summary_pool=summary_pool),
         "Approach 2 (L1 Lasso)": PenalizedKernelSHAP(None, X_train, background_size=config.BACKGROUND_SIZE),
-        "Approach 3 (Owen Values)": OwenValuesSHAP(None, X_train, background_size=config.BACKGROUND_SIZE),
+        "Approach 3 (Owen Values)": OwenValuesSHAP(None, X_train, background_size=config.BACKGROUND_SIZE,
+                                                   clustering=clustering),
         "Approach 4 (Hybrid Owen + KMeans)": HybridOwenKMeansSHAP(
-            None, X_train, n_background_rows=config.OWEN_KMEANS_BACKGROUND_ROWS, summary_pool=summary_pool),
+            None, X_train, n_background_rows=config.OWEN_KMEANS_BACKGROUND_ROWS, summary_pool=summary_pool,
+            clustering=clustering),
     }
 
 
@@ -145,7 +149,8 @@ def compute_references(model, ref_bg, clustering, X_test, instance_ids, f_x, bas
     """
     n_features = len(feature_names)
     shapley_budget = 2 * n_features + 2048
-    owen_budget = config.REFERENCE_OWEN_EVALS_FACTOR * n_features ** 2
+    # +3: shap reserves 2 evaluations for the empty and full coalitions and stops strictly below max_evals
+    owen_budget = full_traversal_evals(clustering) + 3
     shapley_ref = BaselineKernelSHAP(model, ref_bg, background_size=len(ref_bg))
     owen_ref = OwenValuesSHAP(model, ref_bg, background_size=len(ref_bg), clustering=clustering)
 
@@ -161,7 +166,7 @@ def compute_references(model, ref_bg, clustering, X_test, instance_ids, f_x, bas
         owen_ref.reseed(config.SEED)
         runs = owen_ref.run_repeated_experiments(target, n_iterations=1, n_samples=owen_budget)
         if runs.n_coalitions[0] >= owen_budget:
-            log.warning("    Owen reference for instance %s used its full budget (%d); it may not be exact",
+            log.warning("    Owen reference for instance %s ran out of budget (%d); it is not exact",
                         iid, owen_budget)
         frames.append(to_frame({**meta, "budget": owen_budget, "estimand": "owen"}, runs, feature_names, "ok"))
     return pd.concat(frames, ignore_index=True)
@@ -198,9 +203,11 @@ def run_domain_experiment(domain_name: str, domain_tag: str, X_train, X_test, y_
     ref_bg = X_train.sample(n=min(config.REFERENCE_BACKGROUND_SIZE, len(X_train)), random_state=config.SEED)
     log.info("%d features | budgets %s", n_features, budgets)
 
-    approaches = build_approaches(X_train, load_summary_pool(X_train, run_dir))
-    # The Owen reference uses the same feature hierarchy as the Owen approaches
-    clustering = approaches["Approach 3 (Owen Values)"].clustering
+    # One feature hierarchy shared by both Owen approaches and the Owen reference
+    clustering = build_feature_hierarchy(X_train, config.OWEN_GROUP_DISTANCE)
+    log.info("Owen hierarchy: depth %d | exact Owen values need %d evaluations",
+             int(clustering[-1, 2]), full_traversal_evals(clustering))
+    approaches = build_approaches(X_train, load_summary_pool(X_train, run_dir), clustering)
 
     # 2. SHAP experiments for every model x budget
     for model_name, (model, auc) in models.items():

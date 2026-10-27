@@ -24,8 +24,8 @@ class HybridOwenKMeansSHAP(OwenValuesSHAP):
     summary the approach is deterministic.
     """
     def __init__(self, model, background_data, n_clusters=10, summary="medoids",
-                 random_state=None, n_background_rows=100, summary_pool=None):
-        super().__init__(model, background_data, random_state=random_state)
+                 random_state=None, n_background_rows=100, summary_pool=None, clustering=None):
+        super().__init__(model, background_data, random_state=random_state, clustering=clustering)
         if summary_pool is None:
             summary_pool = [summarize_background(background_data, n_clusters, summary)]
         self._bg_mats = [replicate_by_weight(rows.to_numpy(dtype=float), weights, n_background_rows)
