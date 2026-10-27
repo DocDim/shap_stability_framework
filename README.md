@@ -64,12 +64,27 @@ shap_stability_framework/
 ## ⚙️ Installation & Environment Setup
 
 ### 1. Prerequisites
-Tested with Python 3.13 and the pinned versions in `requirements.txt` (shap 0.49.1 requires `numpy < 2.4`):
+Requires **Python 3.10–3.13**; tested with Python 3.13 and the pinned versions in `requirements.txt`. Python 3.14 is not supported: numba 0.62.1 (required by shap) refuses to build on it, and pip fails with `Cannot install on Python version 3.14`.
 
 ```bash
 conda create -n shap_env python=3.13 -y
 conda activate shap_env
 pip install -r requirements.txt
+```
+
+Without conda, [uv](https://docs.astral.sh/uv/) can download Python 3.13 for you:
+
+```bash
+uv venv --python 3.13 .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+uv pip install -r requirements.txt
+```
+
+To use the environment from Jupyter, register it as a kernel and select it in the notebook:
+
+```bash
+pip install ipykernel
+python -m ipykernel install --user --name shap_env --display-name "Python 3.13 (shap_env)"
 ```
 
 ### 2. Configure Kaggle Credentials (for Dataset D1)
