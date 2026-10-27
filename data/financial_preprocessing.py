@@ -135,6 +135,13 @@ def temporal_split(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Ser
     y_test  = df.loc[test_mask,  "default"].copy()
 
     log.info("  Train: %d rows | Test: %d rows", len(X_train), len(X_test))
+    if X_train.empty or X_test.empty:
+        issued = df["issue_d"].dropna()
+        raise ValueError(
+            f"Temporal split at {config.SPLIT_DATE} left the {'train' if X_train.empty else 'test'} set empty: "
+            f"{len(df)} loans issued {issued.min():%Y-%m} to {issued.max():%Y-%m}. The raw file may be "
+            f"truncated (the full LendingClub 2007-2014 file has ~466k loans); replace it with the full file."
+        )
     return X_train, X_test, y_train, y_test
 
 
