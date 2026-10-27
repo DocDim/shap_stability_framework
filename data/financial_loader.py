@@ -9,7 +9,6 @@ import config
 from data.downloaders import download_financial_data
 from data.financial_preprocessing import run_preprocessing_pipeline
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 log = logging.getLogger(__name__)
 
 

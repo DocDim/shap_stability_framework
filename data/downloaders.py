@@ -1,10 +1,8 @@
 # data/downloaders.py
 import os
 import logging
-import pandas as pd
 import config
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 log = logging.getLogger(__name__)
 
 
@@ -27,7 +25,7 @@ def download_financial_data(output_path: str = config.FINANCIAL_RAW_DATA_FILE, f
         "sreekargv/lending-club-data",
         file_path,
     )
-    
+
     df.to_csv(output_path, index=False)
     log.info("Financial dataset saved to: %s (Shape: %s)", output_path, df.shape)
     return output_path
@@ -36,27 +34,28 @@ def download_financial_data(output_path: str = config.FINANCIAL_RAW_DATA_FILE, f
 def download_clinical_data(
     features_path: str = config.CLINICAL_FEATURES_FILE,
     targets_path: str = config.CLINICAL_TARGETS_FILE,
+    ids_path: str = config.CLINICAL_IDS_FILE,
     force: bool = False
 ) -> tuple:
     """
     Downloads the UCI Diabetes 130-US Hospitals (ID: 296) dataset via ucimlrepo if not present.
+    The IDs file (encounter_id, patient_nbr) is needed for the patient-grouped split.
     """
-    os.makedirs(os.path.dirname(features_path), exist_ok=True)
-    os.makedirs(os.path.dirname(targets_path), exist_ok=True)
+    paths = (features_path, targets_path, ids_path)
+    for path in paths:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
 
-    if os.path.exists(features_path) and os.path.exists(targets_path) and not force:
-        log.info("Clinical dataset files already exist at: %s and %s", features_path, targets_path)
-        return features_path, targets_path
+    if all(os.path.exists(p) for p in paths) and not force:
+        log.info("Clinical dataset files already exist at: %s", ", ".join(paths))
+        return paths
 
     log.info("Downloading Clinical Dataset (UCI Diabetes 130 ID: 296) via ucimlrepo...")
     from ucimlrepo import fetch_ucirepo
 
     diabetes = fetch_ucirepo(id=296)
-    df_features = diabetes.data.features
-    df_targets = diabetes.data.targets
+    diabetes.data.features.to_csv(features_path, index=False)
+    diabetes.data.targets.to_csv(targets_path, index=False)
+    diabetes.data.ids.to_csv(ids_path, index=False)
 
-    df_features.to_csv(features_path, index=False)
-    df_targets.to_csv(targets_path, index=False)
-    
-    log.info("Clinical dataset saved to: %s and %s", features_path, targets_path)
-    return features_path, targets_path
+    log.info("Clinical dataset saved to: %s", ", ".join(paths))
+    return paths

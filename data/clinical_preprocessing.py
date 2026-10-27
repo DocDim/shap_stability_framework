@@ -8,41 +8,21 @@ import os
 import logging
 from typing import Tuple, List
 
-import joblib
 import numpy as np
 import pandas as pd
-from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedGroupKFold
 
 import config
+from data.common import write_audit, impute_and_scale
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 log = logging.getLogger(__name__)
 
+GROUP_COL = "patient_nbr"
+TARGET = "readmitted_30d"
 
-# ---------------------------------------------------------------------------
-# Utility — PSI Covariate Drift Audit
-# ---------------------------------------------------------------------------
-
-def calculate_psi(train_col: pd.Series, test_col: pd.Series, num_buckets: int = 10) -> float:
-    """Calculates Population Stability Index (PSI) between train and test clinical distributions."""
-    try:
-        percentiles = np.linspace(0, 100, num_buckets + 1)
-        buckets = np.percentile(train_col.dropna(), percentiles)
-        buckets[0] -= 1e-5
-        buckets[-1] += 1e-5
-        
-        train_counts, _ = np.histogram(train_col.dropna(), bins=buckets)
-        test_counts, _ = np.histogram(test_col.dropna(), bins=buckets)
-        
-        train_pct = np.where(train_counts == 0, 1e-4, train_counts) / len(train_col)
-        test_pct = np.where(test_counts == 0, 1e-4, test_counts) / len(test_col)
-        
-        psi = np.sum((test_pct - train_pct) * np.log(test_pct / train_pct))
-        return float(psi)
-    except Exception:
-        return 0.0
+# UCI encodes "test not performed" as the string "None", which pandas reads as NaN.
+# It is an informative category, not missing data.
+NOT_MEASURED_COLS = ["max_glu_serum", "A1Cresult"]
 
 
 # ---------------------------------------------------------------------------
@@ -51,36 +31,34 @@ def calculate_psi(train_col: pd.Series, test_col: pd.Series, num_buckets: int = 
 
 def load_and_audit(
     features_path: str = config.CLINICAL_FEATURES_FILE,
-    targets_path: str = config.CLINICAL_TARGETS_FILE
+    targets_path: str = config.CLINICAL_TARGETS_FILE,
+    ids_path: str = config.CLINICAL_IDS_FILE,
 ) -> pd.DataFrame:
     """
-    Loads features and targets from UCI Diabetes 130-US Hospitals dataset,
+    Loads features, targets and patient IDs from UCI Diabetes 130-US Hospitals dataset,
     merges them, treats '?' as NaN, and generates a data quality audit.
     """
-    log.info("Step 1 — Loading raw clinical data from: %s and %s", features_path, targets_path)    
-   
+    log.info("Step 1 — Loading raw clinical data from: %s, %s and %s", features_path, targets_path, ids_path)
+
     df_features = pd.read_csv(features_path, low_memory=False)
     df_targets = pd.read_csv(targets_path, low_memory=False)
+    df_ids = pd.read_csv(ids_path, low_memory=False)
 
     # Standardize '?' missing value indicators in clinical data to np.nan
-    df = pd.concat([df_features, df_targets], axis=1).replace("?", np.nan)
+    df = pd.concat([df_features, df_targets, df_ids], axis=1).replace("?", np.nan)
     log.info("  Raw clinical shape: %s rows × %s columns", *df.shape)
 
-    audit = pd.DataFrame({
-        "null_rate":   df.isnull().mean(),
-        "dtype":       df.dtypes.astype(str),
-        "n_unique":    df.nunique(),
-        "n_nonnull":   df.notnull().sum(),
-    })
-    audit.index.name = "column"
-    audit = audit.sort_values("null_rate", ascending=False)
-    audit["exceeds_threshold"] = audit["null_rate"] > config.MISSING_THRESHOLD
+    df = fill_not_measured(df)
+    write_audit(df, "clinical_audit.csv")
+    return df
 
-    os.makedirs(config.OUTPUTS_TABLES_DIR, exist_ok=True)
-    audit_path = os.path.join(config.OUTPUTS_TABLES_DIR, "clinical_audit.csv")
-    audit.to_csv(audit_path)
-    log.info("  Clinical audit table written to: %s", audit_path)
 
+def fill_not_measured(df: pd.DataFrame) -> pd.DataFrame:
+    """Restores the 'None' (test not performed) category for lab result columns."""
+    df = df.copy()
+    for col in NOT_MEASURED_COLS:
+        if col in df.columns:
+            df[col] = df[col].fillna("None")
     return df
 
 
@@ -91,7 +69,7 @@ def load_and_audit(
 def define_target(df: pd.DataFrame) -> pd.DataFrame:
     """
     Constructs the binary 30-day readmission risk target (Y in {0, 1}).
-    
+
     Encoding Schema:
     ----------------
     '<30'  -> 1 (Readmitted within 30 days - High Risk)
@@ -100,25 +78,35 @@ def define_target(df: pd.DataFrame) -> pd.DataFrame:
     """
     log.info("Step 2 — Defining binary clinical readmission target (<30 days vs >=30/NO)")
     target_col = "readmitted"
-    
+
     if target_col not in df.columns:
         raise KeyError(f"Target column '{target_col}' not found in DataFrame.")
 
+    df = exclude_ineligible_discharges(df)
+
     # Binary transformation
-    df["readmitted_30d"] = (df[target_col].astype(str).str.strip() == "<30").astype(int)
-    
+    df[TARGET] = (df[target_col].astype(str).str.strip() == "<30").astype(int)
+
     # Drop raw multiclass target
     df = df.drop(columns=[target_col])
-    
-    pos_count = int(df["readmitted_30d"].sum())
+
+    pos_count = int(df[TARGET].sum())
     total_count = len(df)
     pos_rate = (pos_count / total_count) * 100
-    
+
     log.info("  Total observations: %d", total_count)
     log.info("  Class 1 (<30 days): %d (%.2f%%)", pos_count, pos_rate)
     log.info("  Class 0 (>=30 / NO): %d (%.2f%%)", total_count - pos_count, 100 - pos_rate)
-    
+
     return df
+
+
+def exclude_ineligible_discharges(df: pd.DataFrame) -> pd.DataFrame:
+    """Drops encounters discharged as expired or to hospice: they cannot be readmitted."""
+    disposition = pd.to_numeric(df["discharge_disposition_id"], errors="coerce")
+    ineligible = disposition.isin(config.CLINICAL_EXCLUDED_DISCHARGE_IDS)
+    log.info("  Excluding %d expired/hospice encounters", int(ineligible.sum()))
+    return df.loc[~ineligible].copy()
 
 
 # ---------------------------------------------------------------------------
@@ -150,8 +138,8 @@ CLINICAL_FEATURE_SPEC: List[dict] = [
     {"feature": "number_diagnoses",         "encoding": "NUM", "keep": True,  "reason": "Comorbidity count entered into system"},
 
     # ── Test Results & Medication Adjustments ─────────────────────────────
-    {"feature": "max_glu_serum",            "encoding": "OHE", "keep": True,  "reason": "Blood glucose test result flag"},
-    {"feature": "A1Cresult",                "encoding": "OHE", "keep": True,  "reason": "HbA1c test result flag"},
+    {"feature": "max_glu_serum",            "encoding": "OHE", "keep": True,  "reason": "Blood glucose test result ('None' = not measured)"},
+    {"feature": "A1Cresult",                "encoding": "OHE", "keep": True,  "reason": "HbA1c test result ('None' = not measured)"},
     {"feature": "metformin",                "encoding": "OHE", "keep": True,  "reason": "Diabetes medication adjustment"},
     {"feature": "insulin",                  "encoding": "OHE", "keep": True,  "reason": "Insulin medication adjustment"},
     {"feature": "change",                   "encoding": "OHE", "keep": True,  "reason": "Medication dosage change flag"},
@@ -159,7 +147,7 @@ CLINICAL_FEATURE_SPEC: List[dict] = [
 
     # ── Identifiers (Drop) ────────────────────────────────────────────────
     {"feature": "encounter_id",             "encoding": "—",   "keep": False, "reason": "Unique encounter ID — no predictive signal"},
-    {"feature": "patient_nbr",              "encoding": "—",   "keep": False, "reason": "Unique patient ID — no predictive signal"},
+    {"feature": "patient_nbr",              "encoding": "—",   "keep": False, "reason": "Patient ID — used only to group the train/test split"},
     {"feature": "diag_1",                   "encoding": "—",   "keep": False, "reason": "High cardinality raw ICD-9 codes"},
     {"feature": "diag_2",                   "encoding": "—",   "keep": False, "reason": "High cardinality raw ICD-9 codes"},
     {"feature": "diag_3",                   "encoding": "—",   "keep": False, "reason": "High cardinality raw ICD-9 codes"},
@@ -170,7 +158,7 @@ CLINICAL_FEATURES_TO_KEEP: List[str] = [spec["feature"] for spec in CLINICAL_FEA
 
 def select_features(df: pd.DataFrame) -> pd.DataFrame:
     log.info("Step 3 — Clinical Feature Selection")
-    
+
     decision_df = pd.DataFrame(CLINICAL_FEATURE_SPEC)
     os.makedirs(config.OUTPUTS_TABLES_DIR, exist_ok=True)
     decision_df.to_csv(os.path.join(config.OUTPUTS_TABLES_DIR, "clinical_feature_decisions.csv"), index=False)
@@ -178,11 +166,14 @@ def select_features(df: pd.DataFrame) -> pd.DataFrame:
     missing_rate = df.isnull().mean()
     high_missing = missing_rate[missing_rate > config.MISSING_THRESHOLD].index.tolist()
 
-    available = set(df.columns) - set(high_missing) - {"readmitted_30d"}
+    available = set(df.columns) - set(high_missing) - {TARGET}
     keep = [f for f in CLINICAL_FEATURES_TO_KEEP if f in available]
-    keep_with_target = keep + ["readmitted_30d"]
+    dropped = [f for f in CLINICAL_FEATURES_TO_KEEP if f not in available]
+    if dropped:
+        log.warning("  Features marked keep=True but dropped for missingness: %s", dropped)
 
-    df = df[keep_with_target].copy()
+    # patient_nbr is carried through only as the split grouping key
+    df = df[keep + [GROUP_COL, TARGET]].copy()
     log.info("  Retained %d clinical features (+ target)", len(keep))
     return df
 
@@ -218,7 +209,7 @@ def encode(df: pd.DataFrame) -> pd.DataFrame:
         "insulin", "change", "diabetesMed"
     ]
     ohe_cols = [c for c in ohe_candidates if c in df.columns]
-    
+
     if ohe_cols:
         df = pd.get_dummies(df, columns=ohe_cols, drop_first=True, dtype=float)
 
@@ -231,19 +222,26 @@ def encode(df: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 def split_clinical_data(
-    df: pd.DataFrame, test_size: float = 0.2, random_state: int = 42
+    df: pd.DataFrame, test_size: float = config.CLINICAL_TEST_SIZE, random_state: int = config.SEED
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
     """
-    Splits clinical data into train/test sets using stratification on the readmission target.
+    Splits clinical data into train/test sets, stratified on the readmission target and
+    grouped by patient so that no patient's encounters appear on both sides.
     """
-    log.info("Step 5 — Splitting clinical data (80/20 Stratified Split)")
-    
-    X = df.drop(columns=["readmitted_30d"])
-    y = df["readmitted_30d"]
+    log.info("Step 5 — Splitting clinical data (stratified, grouped by %s)", GROUP_COL)
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size, random_state=random_state, stratify=y
-    )
+    X = df.drop(columns=[TARGET, GROUP_COL])
+    y = df[TARGET]
+    groups = df[GROUP_COL]
+
+    splitter = StratifiedGroupKFold(n_splits=round(1 / test_size), shuffle=True, random_state=random_state)
+    train_idx, test_idx = next(splitter.split(X, y, groups))
+    X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+    y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+
+    overlap = set(groups.iloc[train_idx]) & set(groups.iloc[test_idx])
+    if overlap:
+        raise RuntimeError(f"{len(overlap)} patients appear in both train and test")
 
     log.info("  Train: %d instances (Readmission rate: %.2f%%)", len(X_train), y_train.mean() * 100)
     log.info("  Test:  %d instances (Readmission rate: %.2f%%)", len(X_test), y_test.mean() * 100)
@@ -252,62 +250,15 @@ def split_clinical_data(
     stats = pd.DataFrame({
         "split": ["train", "test"],
         "n_obs": [len(X_train), len(X_test)],
+        "n_patients": [groups.iloc[train_idx].nunique(), groups.iloc[test_idx].nunique()],
         "n_readmitted": [int(y_train.sum()), int(y_test.sum())],
         "readmission_rate": [y_train.mean(), y_test.mean()]
     })
+    os.makedirs(config.OUTPUTS_TABLES_DIR, exist_ok=True)
     stats_path = os.path.join(config.OUTPUTS_TABLES_DIR, "clinical_split_statistics.csv")
     stats.to_csv(stats_path, index=False)
-    
+
     return X_train, X_test, y_train, y_test
-
-
-# ---------------------------------------------------------------------------
-# Step 6 — scale
-# ---------------------------------------------------------------------------
-
-def scale(
-    X_train: pd.DataFrame, X_test: pd.DataFrame
-) -> Tuple[pd.DataFrame, pd.DataFrame, StandardScaler]:
-    """
-    Fits median imputer and standard scaler on training split only,
-    computes PSI covariate drift metrics, and persists artifacts.
-    """
-    log.info("Step 6 — Clinical scaling (fit on train only) & PSI Covariate Drift Audit")
-
-    num_cols = X_train.select_dtypes(include=["float64", "int64", "float32", "int32"]).columns.tolist()
-    dummy_cols = [c for c in num_cols if X_train[c].dropna().isin([0.0, 1.0]).all()]
-    scale_cols = [c for c in num_cols if c not in dummy_cols]
-
-    # Covariate drift assessment (PSI)
-    for col in scale_cols:
-        psi_val = calculate_psi(X_train[col], X_test[col])
-        if psi_val > 0.25:
-            log.warning("  High covariate drift detected in clinical feature '%s' (PSI = %.4f)", col, psi_val)
-
-    # Imputation (Median for clinical lab measurements and count variables)
-    imputer = SimpleImputer(strategy="median")
-    imputer.fit(X_train[scale_cols])
-
-    X_train_imp = X_train.copy()
-    X_test_imp = X_test.copy()
-    X_train_imp[scale_cols] = imputer.transform(X_train[scale_cols])
-    X_test_imp[scale_cols] = imputer.transform(X_test[scale_cols])
-
-    # Scaling
-    scaler = StandardScaler()
-    scaler.fit(X_train_imp[scale_cols])
-
-    X_train_scaled = X_train_imp.copy()
-    X_test_scaled = X_test_imp.copy()
-    X_train_scaled[scale_cols] = scaler.transform(X_train_imp[scale_cols])
-    X_test_scaled[scale_cols] = scaler.transform(X_test_imp[scale_cols])
-
-    # Persist artifacts
-    os.makedirs(config.DATA_PROCESSED_DIR, exist_ok=True)
-    joblib.dump(imputer, os.path.join(config.DATA_PROCESSED_DIR, "clinical_imputer.joblib"))
-    joblib.dump(scaler, os.path.join(config.DATA_PROCESSED_DIR, "clinical_scaler.joblib"))
-
-    return X_train_scaled, X_test_scaled, scaler
 
 
 # ---------------------------------------------------------------------------
@@ -316,14 +267,16 @@ def scale(
 
 def run_clinical_preprocessing_pipeline(
     features_path: str = config.CLINICAL_FEATURES_FILE,
-    targets_path: str = config.CLINICAL_TARGETS_FILE
+    targets_path: str = config.CLINICAL_TARGETS_FILE,
+    ids_path: str = config.CLINICAL_IDS_FILE,
 ):
-    df = load_and_audit(features_path, targets_path)
+    df = load_and_audit(features_path, targets_path, ids_path)
     df = define_target(df)
     df = select_features(df)
     df = encode(df)
     X_train, X_test, y_train, y_test = split_clinical_data(df)
-    X_train_sc, X_test_sc, scaler = scale(X_train, X_test)
+    log.info("Step 6 — Clinical scaling (fit on train only) & PSI Covariate Drift Audit")
+    X_train_sc, X_test_sc, scaler = impute_and_scale(X_train, X_test, artifact_prefix="clinical_")
 
     # Persist processed Parquet/CSV splits
     os.makedirs(config.DATA_PROCESSED_DIR, exist_ok=True)

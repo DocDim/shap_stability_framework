@@ -1,96 +1,68 @@
 # src/shap_approaches/owen_values.py
 import numpy as np
 import pandas as pd
-from scipy.spatial.distance import squareform
-from scipy.cluster.hierarchy import linkage, fcluster
-from src.shap_approaches.base import BaseSHAPApproach
 import shap
+from scipy.spatial.distance import squareform
+from scipy.cluster.hierarchy import linkage
+from src.shap_approaches.base import BaseSHAPApproach, Explanation
 
 
-class OwenValuesKernelSHAP(BaseSHAPApproach):
-    def __init__(self, model, background_data, correlation_threshold=0.5, random_state=None):
-        super().__init__(model, background_data, random_state=random_state)
-        self.correlation_threshold = correlation_threshold
-        self.coalition_labels = self._build_feature_coalitions(background_data)
-        self.unique_coalitions = np.unique(self.coalition_labels)
-        self.n_coalitions = len(self.unique_coalitions)
+def build_feature_hierarchy(data: pd.DataFrame) -> np.ndarray:
+    """
+    Average-linkage clustering of features on 1 - |corr|, returned as a scipy linkage matrix
+    (the binary tree PartitionExplainer uses as its coalition structure). Constant features
+    get distance 1 to everything, so they join the tree last.
+    """
+    n_features = data.shape[1]
+    valid_mask = data.std(axis=0).to_numpy() > 1e-7
 
-    def _build_feature_coalitions(self, data):
-        df = data if isinstance(data, pd.DataFrame) else pd.DataFrame(data)
-        n_features = df.shape[1]
-        
-        stds = df.std(axis=0).to_numpy()
-        valid_mask = stds > 1e-7
-        
-        dist_matrix = np.ones((n_features, n_features), dtype=float)
-        np.fill_diagonal(dist_matrix, 0.0)
+    dist_matrix = np.ones((n_features, n_features), dtype=float)
+    if np.sum(valid_mask) > 1:
+        corr = data.loc[:, valid_mask].corr().to_numpy()
+        valid_dist = np.clip(1.0 - np.abs(corr), 0.0, 1.0)
+        dist_matrix[np.ix_(valid_mask, valid_mask)] = (valid_dist + valid_dist.T) / 2.0
+    np.fill_diagonal(dist_matrix, 0.0)
 
-        if np.sum(valid_mask) > 1:
-            valid_df = df.iloc[:, valid_mask]
-            corr = valid_df.corr().to_numpy()
-            valid_dist = np.clip(1.0 - np.abs(corr), 0.0, 1.0)
-            np.fill_diagonal(valid_dist, 0.0)
-            valid_dist = (valid_dist + valid_dist.T) / 2.0
+    return linkage(squareform(dist_matrix, checks=False), method="average")
 
-            valid_indices = np.where(valid_mask)[0]
-            for i_idx, i_orig in enumerate(valid_indices):
-                for j_idx, j_orig in enumerate(valid_indices):
-                    dist_matrix[i_orig, j_orig] = valid_dist[i_idx, j_idx]
 
-        condensed_dist = squareform(dist_matrix, checks=False)
-        Z = linkage(condensed_dist, method="average")
-        dist_cutoff = max(1.0 - self.correlation_threshold, 1e-4)
-        return fcluster(Z, t=dist_cutoff, criterion="distance")
+class OwenValuesSHAP(BaseSHAPApproach):
+    """
+    Owen values over the feature correlation hierarchy, via shap.PartitionExplainer.
 
-    def _make_coalition_predict(self, bg_sample, target_row):
-        """Creates a prediction wrapper where coalitions are perturbed together."""
-        bg_mat = bg_sample.to_numpy() if isinstance(bg_sample, pd.DataFrame) else bg_sample
-        target_vec = target_row.flatten()
-        n_bg = bg_mat.shape[0]
+    Credit is assigned top-down through the tree: correlated features are switched between
+    background and target together at coarse levels and separated only near the leaves.
+    `n_samples` is the evaluation budget (max_evals). Subtrees the budget does not reach split
+    their credit across members in proportion to size, so efficiency always holds. With a
+    budget large enough to explore the whole tree the result is the exact Owen value for the
+    given background.
 
-        def coalition_predict(z_coalitions):
-            # z_coalitions shape: (n_evaluations, n_coalitions)
-            n_evals = z_coalitions.shape[0]
-            # Tile background across evaluations
-            X_eval = np.tile(bg_mat, (n_evals, 1))
-            
-            for c_idx, c_id in enumerate(self.unique_coalitions):
-                feat_indices = np.where(self.coalition_labels == c_id)[0]
-                active_mask = (z_coalitions[:, c_idx] == 1)
-                if np.any(active_mask):
-                    active_eval_indices = np.repeat(active_mask, n_bg)
-                    # Single indexing step: chained X[rows, :][:, cols] = v writes to a copy
-                    X_eval[np.ix_(active_eval_indices, feat_indices)] = target_vec[feat_indices]
+    Pass `clustering` to reuse a hierarchy built elsewhere (e.g. the reference explainer, whose
+    small background should not define the coalition structure).
+    """
+    estimand = "owen"
 
-            probs = self.model.predict_proba(X_eval)
-            p1 = probs[:, 1] if probs.ndim == 2 else probs
-            return p1.reshape(n_evals, n_bg).mean(axis=1)
+    def __init__(self, model, background_data, random_state=None, background_size=50, clustering=None):
+        super().__init__(model, background_data, random_state=random_state, background_size=background_size)
+        self.clustering = build_feature_hierarchy(background_data) if clustering is None else clustering
 
-        return coalition_predict
+    def _background(self) -> np.ndarray:
+        """Background rows for one iteration (the masker averages over them uniformly)."""
+        return self._sample_background().to_numpy(dtype=float)
 
-    def run_iteration(self, target_instance, n_samples=200) -> np.ndarray:
-        bg_sample = self._sample_background(50)
-        target_row = target_instance.to_numpy() if isinstance(target_instance, pd.DataFrame) else target_instance
+    def _predict_positive(self, X):
+        return self.model.predict_proba(X)[:, 1]
 
-        coalition_pred_fn = self._make_coalition_predict(bg_sample, target_row)
-        
-        # Background reference in coalition space (all zeros = all background)
-        z_bg = np.zeros((1, self.n_coalitions))
-        z_target = np.ones((1, self.n_coalitions))
+    def run_iteration(self, target_instance, n_samples=200) -> Explanation:
+        bg = self._background()
+        masker = shap.maskers.Partition(bg, max_samples=len(bg), clustering=self.clustering)
+        explainer = shap.PartitionExplainer(self._predict_positive, masker)
+        result = explainer(np.asarray(target_instance, dtype=float), max_evals=n_samples, silent=True)
 
-        explainer = shap.KernelExplainer(coalition_pred_fn, z_bg)
-        coalition_shap = explainer.shap_values(z_target, nsamples=n_samples, l1_reg=False, silent=True)
-
-        if isinstance(coalition_shap, list):
-            c_vals = np.array(coalition_shap[1]).flatten()
-        else:
-            c_vals = np.array(coalition_shap).flatten()
-
-        # Distribute coalition attribution uniformly across member features
-        n_features = target_instance.shape[1]
-        final_shap_values = np.zeros(n_features)
-        for c_idx, c_id in enumerate(self.unique_coalitions):
-            feat_indices = np.where(self.coalition_labels == c_id)[0]
-            final_shap_values[feat_indices] = c_vals[c_idx] / len(feat_indices)
-
-        return final_shap_values
+        # +2 for the all-background and all-target evaluations outside the Owen recursion
+        return Explanation(
+            phi=np.asarray(result.values).reshape(-1),
+            base_value=float(np.ravel(result.base_values)[0]),
+            n_coalitions=int(explainer.last_eval_count) + 2,
+            n_background=len(bg),
+        )

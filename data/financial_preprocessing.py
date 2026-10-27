@@ -1,64 +1,26 @@
 """
-preprocessing.py — Data ingestion, quality audit, target construction,
-                   feature selection, encoding, temporal splitting, and scaling.
+financial_preprocessing.py — Data ingestion, quality audit, target construction,
+                             feature selection, encoding, temporal splitting, and scaling
+                             for LendingClub 2007-2014.
 """
 
 import os
 import logging
 from typing import Tuple, List
 
-import joblib
-import numpy as np
 import pandas as pd
-from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import StandardScaler
 
 import config
+from data.common import write_audit, impute_and_scale
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 log = logging.getLogger(__name__)
-
-
-def calculate_psi(train_col: pd.Series, test_col: pd.Series, num_buckets: int = 10) -> float:
-    """Calculates Population Stability Index (PSI) between train and test distributions."""
-    try:
-        percentiles = np.linspace(0, 100, num_buckets + 1)
-        buckets = np.percentile(train_col.dropna(), percentiles)
-        buckets[0] -= 1e-5
-        buckets[-1] += 1e-5
-        
-        train_counts, _ = np.histogram(train_col.dropna(), bins=buckets)
-        test_counts, _ = np.histogram(test_col.dropna(), bins=buckets)
-        
-        train_pct = np.where(train_counts == 0, 1e-4, train_counts) / len(train_col)
-        test_pct = np.where(test_counts == 0, 1e-4, test_counts) / len(test_col)
-        
-        psi = np.sum((test_pct - train_pct) * np.log(test_pct / train_pct))
-        return float(psi)
-    except Exception:
-        return 0.0
 
 
 def load_and_audit(filepath: str = config.FINANCIAL_RAW_DATA_FILE) -> pd.DataFrame:
     log.info("Step 1 — Loading raw data from: %s", filepath)
     df = pd.read_csv(filepath, low_memory=False)
     log.info("  Raw shape: %s rows × %s columns", *df.shape)
-
-    audit = pd.DataFrame({
-        "null_rate":   df.isnull().mean(),
-        "dtype":       df.dtypes.astype(str),
-        "n_unique":    df.nunique(),
-        "n_nonnull":   df.notnull().sum(),
-    })
-    audit.index.name = "column"
-    audit = audit.sort_values("null_rate", ascending=False)
-    audit["exceeds_threshold"] = audit["null_rate"] > config.MISSING_THRESHOLD
-
-    os.makedirs(config.OUTPUTS_TABLES_DIR, exist_ok=True)
-    audit_path = os.path.join(config.OUTPUTS_TABLES_DIR, "audit.csv")
-    audit.to_csv(audit_path)
-    log.info("  Audit table written to: %s", audit_path)
-
+    write_audit(df, "audit.csv")
     return df
 
 
@@ -132,8 +94,10 @@ def encode(df: pd.DataFrame) -> pd.DataFrame:
 
     if "earliest_cr_line" in df.columns and "issue_d" in df.columns:
         ecl = pd.to_datetime(df["earliest_cr_line"], format="%b-%y", errors="coerce")
+        # %y maps 00-68 to 20xx, so 'Jan-65' parses as 2065; a credit line cannot open after the loan
+        ecl_year = ecl.dt.year.where(ecl <= df["issue_d"], ecl.dt.year - 100)
         df["credit_history_months"] = (
-            (df["issue_d"].dt.year - ecl.dt.year) * 12 + (df["issue_d"].dt.month - ecl.dt.month)
+            (df["issue_d"].dt.year - ecl_year) * 12 + (df["issue_d"].dt.month - ecl.dt.month)
         )
         df = df.drop(columns=["earliest_cr_line"])
 
@@ -174,52 +138,14 @@ def temporal_split(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Ser
     return X_train, X_test, y_train, y_test
 
 
-def scale(X_train: pd.DataFrame, X_test: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, StandardScaler]:
-    log.info("Step 6 — Scaling (fit on train only) & PSI Covariate Drift Audit")
-
-    num_cols = X_train.select_dtypes(include=["float64", "int64", "float32", "int32"]).columns.tolist()
-    dummy_cols  = [c for c in num_cols if X_train[c].dropna().isin([0.0, 1.0]).all()]
-    scale_cols  = [c for c in num_cols if c not in dummy_cols]
-
-    # Covariate drift assessment (PSI)
-    psi_results = {}
-    for col in scale_cols:
-        psi_val = calculate_psi(X_train[col], X_test[col])
-        psi_results[col] = psi_val
-        if psi_val > 0.25:
-            log.warning("  High covariate drift detected in '%s' (PSI = %.4f)", col, psi_val)
-
-    # Imputation & Scaling
-    imputer = SimpleImputer(strategy="median")
-    imputer.fit(X_train[scale_cols])
-
-    X_train_imp = X_train.copy()
-    X_test_imp  = X_test.copy()
-    X_train_imp[scale_cols] = imputer.transform(X_train[scale_cols])
-    X_test_imp[scale_cols]  = imputer.transform(X_test[scale_cols])
-
-    scaler = StandardScaler()
-    scaler.fit(X_train_imp[scale_cols])
-
-    X_train_scaled = X_train_imp.copy()
-    X_test_scaled  = X_test_imp.copy()
-    X_train_scaled[scale_cols] = scaler.transform(X_train_imp[scale_cols])
-    X_test_scaled[scale_cols]  = scaler.transform(X_test_imp[scale_cols])
-
-    os.makedirs(config.DATA_PROCESSED_DIR, exist_ok=True)
-    joblib.dump(imputer, os.path.join(config.DATA_PROCESSED_DIR, "imputer.joblib"))
-    joblib.dump(scaler,  os.path.join(config.DATA_PROCESSED_DIR, "scaler.joblib"))
-
-    return X_train_scaled, X_test_scaled, scaler
-
-
 def run_preprocessing_pipeline(filepath: str = config.FINANCIAL_RAW_DATA_FILE):
     df = load_and_audit(filepath)
     df = define_target(df)
     df = select_features(df)
     df = encode(df)
     X_train, X_test, y_train, y_test = temporal_split(df)
-    X_train_sc, X_test_sc, scaler    = scale(X_train, X_test)
+    log.info("Step 6 — Scaling (fit on train only) & PSI Covariate Drift Audit")
+    X_train_sc, X_test_sc, scaler    = impute_and_scale(X_train, X_test)
 
     os.makedirs(config.DATA_PROCESSED_DIR, exist_ok=True)
     X_train_sc.to_parquet(os.path.join(config.DATA_PROCESSED_DIR, "X_train_financial.parquet"))

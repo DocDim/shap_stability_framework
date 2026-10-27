@@ -1,25 +1,25 @@
 # KernelSHAP Stability & Regulatory Compliance Framework
 
-A quantitative research and benchmarking framework designed to evaluate, diagnose, and resolve algorithmic instability in KernelSHAP explanations across high-stakes regulated domains.
+A quantitative research and benchmarking framework for evaluating algorithmic instability in KernelSHAP explanations, and the interventions proposed to reduce it, across high-stakes regulated domains.
 
 ---
 
 ## 📌 Overview
 
-Post-hoc explanation methods like KernelSHAP are widely deployed to meet adverse action and legal interpretability requirements (such as **GDPR Article 22** and the **Equal Credit Opportunity Act / ECOA**). However, standard KernelSHAP suffers from severe attribution volatility across identical queries due to reference background sampling noise and independent coalition assumptions over correlated features.
+Post-hoc explanation methods like KernelSHAP are widely deployed to meet adverse action and legal interpretability requirements (such as **GDPR Article 22** and the **Equal Credit Opportunity Act / ECOA**). However, KernelSHAP attributions vary across repeated queries for the same instance, because of background sampling noise, coalition sampling noise, and the independence assumption over correlated features.
 
 This framework implements:
-1. **End-to-End Leakage-Free Preprocessing Pipelines** for Financial and Clinical domains (including Population Stability Index audits and temporal/stratified split integrity).
+1. **Leakage-Free Preprocessing Pipelines** for a Financial (LendingClub, out-of-time split) and a Clinical (UCI Diabetes 130, patient-grouped split) domain, with missingness and Population Stability Index (PSI) audits.
 2. **Multi-Model Benchmark**: every predefined model (Random Forest, Gradient Boosting, Logistic Regression, Naive Bayes, MLP) is trained and explained — no model selection step.
-3. **Four Distinct Post-Hoc Stability Interventions**:
-   * **Approach 1:** Background Data Summarization (\$K\$-Means Centroids)
-   * **Approach 2:** Regularized Kernel Regression (L1 / Lasso-AIC feature selection via `l1_reg="auto"`)
-   * **Approach 3:** Coalitional Feature Grouping (Owen Values via Hierarchical Correlation Clustering)
-   * **Approach 4:** Hybrid Optimization (Owen Values + \$K\$-Means Background Summarization)
-4. **Three-Dimensional Quantitative Evaluation**:
-   * **\$V1\$:** Feature Association Coefficient of Variation (ACV Volatility)
-   * **\$V2\$:** Top- \$k\$ Jaccard Rank Agreement Consistency
-   * **\$V3\$:** Attribution Distribution Fidelity (Wasserstein Distance vs. Baseline)
+3. **Four Post-Hoc Stability Interventions** compared against a baseline:
+   * **Baseline:** KernelSHAP with a fresh 50-row background sample per run
+   * **Approach 1:** Background summarization (K-Means, cluster-size weighted; medoids by default), refitted on a bootstrap sample of the training data for each repeat
+   * **Approach 2:** L1-regularized kernel regression (LassoLarsIC / AIC, `l1_reg="aic"`)
+   * **Approach 3:** Owen values over a feature correlation hierarchy (`shap.PartitionExplainer`, average-linkage tree on 1 − |ρ|), fresh 50-row background per run
+   * **Approach 4:** Hybrid — Owen values against the same bootstrapped K-Means backgrounds (replicated by cluster weight, since the Partition masker averages its background uniformly)
+
+   Every approach is exposed to the sampling variability of its own background: Baseline, L1 and Owen redraw 50 rows per repeat, and the K-Means approaches use a summary refitted on a fresh bootstrap sample per repeat (`BOOTSTRAP_SUMMARIES`). Without this, a fixed summary would hide that variability and overstate the K-Means approaches' stability.
+4. **Evaluation across many instances and budgets**, with 95% confidence intervals and paired significance tests against the baseline.
 
 ---
 
@@ -27,32 +27,36 @@ This framework implements:
 
 ```text
 shap_stability_framework/
-├── config.py                          # Global paths, thresholds, and configuration constants
-├── main.py                            # Unified execution driver for Financial and Clinical domains
+├── config.py                          # Paths, pipeline parameters and the experiment grid
+├── main.py                            # Runs every domain × model × budget × approach; writes Parquet results
+├── analyze.py                         # Metrics, baseline comparisons, tables and figures from a run
 ├── data/
-│   ├── __init__.py                    # Ingestion and pipeline API exports
-│   ├── downloaders.py                 # Automated downloaders for LendingClub & UCI Diabetes 130
-│   ├── financial_preprocessing.py     # 6-step temporal pipeline & PSI audit for LendingClub (D1)
+│   ├── downloaders.py                 # Downloaders for LendingClub (kagglehub) & UCI Diabetes 130 (ucimlrepo)
+│   ├── common.py                      # Shared audit, PSI and train-only impute/scale steps
+│   ├── financial_preprocessing.py     # 6-step temporal pipeline for LendingClub (D1)
 │   ├── financial_loader.py            # High-level loader for Financial data
-│   ├── clinical_preprocessing.py      # 6-step stratified pipeline for UCI Diabetes 130 (D2)
+│   ├── clinical_preprocessing.py      # 6-step patient-grouped pipeline for UCI Diabetes 130 (D2)
 │   ├── clinical_loader.py             # High-level loader for Clinical data
-│   └── processed/                     # Serialized Parquet splits, scalers, and imputers
-├── models/
-│   ├── trainer.py                     # Multi-model selection via TimeSeriesSplit CV
-│   └── saved/                         # Persisted winner model binaries (.joblib)
-├── shap_approaches/
-│   ├── __init__.py                    # SHAP strategy exports
-│   ├── base.py                        # Abstract base class for repeated SHAP experimentation
-│   ├── baseline.py                    # Standard KernelSHAP implementation
-│   ├── background_sampling.py         # Approach 1: KMeans Background Centroids
-│   ├── penalized_kernel.py            # Approach 2: L1 (Lasso) Regularized Regression
-│   ├── owen_values.py                 # Approach 3: Hierarchical Owen Values
-│   └── hybrid_owen_kmeans.py          # Approach 4: Hybrid Owen + KMeans
-├── metrics/
-│   ├── stability_metrics.py           # Core implementations of ACV, Jaccard, and Wasserstein
-│   └── comparative_analysis.py        # Relative improvement calculators and pairwise matrices
-└── outputs/
-    └── tables/                        # Output CSV audits, feature decisions, and split stats
+│   └── processed/                     # (generated) Parquet splits, scalers, imputers
+├── src/
+│   ├── models/
+│   │   ├── trainer.py                 # Trains/caches all models; retrains caches fitted on other features
+│   │   └── saved/                     # (generated) <domain>_<model>.joblib
+│   ├── shap_approaches/
+│   │   ├── base.py                    # Abstract base class; seeding, positive-class extraction, base values
+│   │   ├── baseline.py                # Baseline KernelSHAP
+│   │   ├── kmeans.py                  # Approach 1 + shared K-Means medoid/centroid background summary
+│   │   ├── penalized_kernel.py        # Approach 2: L1 (Lasso/AIC) regularized regression
+│   │   ├── owen_values.py             # Approach 3: Owen values (PartitionExplainer) + feature hierarchy
+│   │   └── hybrid_owen_kmeans.py      # Approach 4: Owen values + K-Means background
+│   └── metrics/
+│       ├── stability_metrics.py       # ACV, Jaccard, reference error, efficiency check
+│       ├── results.py                 # Loads runs and computes per-instance metrics
+│       ├── comparative_analysis.py    # Summaries with CIs; Wilcoxon tests vs baseline (BH-corrected)
+│       └── visualizer.py              # Metric-vs-budget curves and attribution boxplots
+├── tests/                             # pytest unit tests (metrics, approaches, preprocessing)
+├── docs/                              # Historical reports
+└── outputs/                           # (generated) experiments/, tables/, figures/, experiment_log.txt
 ```
 
 ---
@@ -60,62 +64,91 @@ shap_stability_framework/
 ## ⚙️ Installation & Environment Setup
 
 ### 1. Prerequisites
-Ensure you are using Python 3.10–3.11 with `numpy <= 2.3` (required by Numba/SHAP):
+Tested with Python 3.13 and the pinned versions in `requirements.txt` (shap 0.49.1 requires `numpy < 2.4`):
 
 ```bash
-# Create conda environment
-conda create -n shap_env python=3.11 -y
+conda create -n shap_env python=3.13 -y
 conda activate shap_env
-
-# Install required dependencies
-pip install \"numpy<2.4\" pandas scikit-learn scipy shap joblib ucimlrepo kagglehub pyarrow
+pip install -r requirements.txt
 ```
 
-### 2. Configure Kaggle Credentials (for Dataset \$D1\$)
-Dataset \$D1\$ requires `kagglehub` to fetch the LendingClub dataset. Ensure your `kaggle.json` API token is located at `~/.kaggle/kaggle.json` or configured in your environment variables.
+### 2. Configure Kaggle Credentials (for Dataset D1)
+Dataset D1 requires `kagglehub` to fetch the LendingClub dataset. Ensure your `kaggle.json` API token is located at `~/.kaggle/kaggle.json` or configured in your environment variables. Dataset D2 is downloaded automatically from the UCI repository (features, targets and patient IDs).
+
+### 3. Run the tests
+
+```bash
+python -m pytest
+```
 
 ---
 
 ## 🚀 Running the Framework
 
-Run the end-to-end benchmarking pipeline across both Financial and Clinical domains:
-
 ```bash
-python main.py
+python main.py      # run the experiments (resumable)
+python analyze.py   # metrics, comparisons and figures for the latest run of each domain
 ```
 
-### Logging Console Output to File
+All experiment settings live in `config.py` (`N_INSTANCES`, `N_ITERATIONS`, `BUDGET_MULTIPLIERS`, `BACKGROUND_SIZE`, `BACKGROUND_SUMMARY`, …). The settings are hashed into a **run id**; results go to `outputs/experiments/<domain>/<run_id>/`, one Parquet file per model × budget plus a high-budget reference per model. Re-running `main.py` with the same settings skips files that already exist; changing any setting starts a new run. Bump `EXPERIMENT_VERSION` after changing approach code so that old results are not resumed.
 
-* **Windows Command Prompt:**
-  ```cmd
-  python main.py > outputs/experiment_results.txt
-  ```
+Console output is also appended to `outputs/experiment_log.txt`. `analyze.py` can be pointed at specific runs: `python analyze.py outputs/experiments/financial/<run_id>`.
 
-* **PowerShell (Live display + save to file):**
-  ```powershell
-  python main.py | Tee-Object -FilePath \"outputs/experiment_results.txt\"
-  ```
+> Cost scales with `N_INSTANCES × N_ITERATIONS × budgets × 5 approaches × 5 models`. Lower `N_INSTANCES` or drop the largest budget multiplier for a quick run.
 
 ---
 
-## 📊 Evaluation Metrics Overview
+## 📊 Evaluation Metrics
 
-| Metric | Scope | Target | Legal & Regulatory Context |
+Each metric is computed per (model, budget, approach, instance) over the `N_ITERATIONS` repeated explanations, then summarized across instances (mean with a 95% percentile-bootstrap CI, which stays within each metric's range).
+
+| Metric | Definition | Target | Regulatory Context |
 | :--- | :--- | :---: | :--- |
-| **ACV (Volatility)** | Measures numerical variance of feature scores across repeated runs on the exact same instance. | **Lower** (\$\rightarrow 0.0\$) | Guarantees numerical repeatability under regulatory audits (GDPR Art. 22). |
-| **Top- \$k\$ Jaccard Agreement** | Quantifies the overlap and rank consistency of the top \$k\$ key decision factors. | **Higher** (\$\rightarrow 1.0\$) | Ensures Adverse Action Notices consistently cite the same primary denial/risk factors. |
-| **Wasserstein Distance** | Measures the earth mover's distance between stabilized attributions and baseline distributions. | **Fidelity Check** | Verifies that noise reduction did not distort the model's true underlying prediction profile. |
+| **ACV (Volatility)** | Importance-weighted coefficient of variation: Σⱼ std(φⱼ) / Σⱼ \|mean(φⱼ)\|. Unlike an unweighted mean of per-feature CVs, it is not dominated by features whose attribution is ~0. | **Lower** | Numerical repeatability of explanations under audit (GDPR Art. 22). |
+| **Top-k Jaccard Agreement** | Mean pairwise Jaccard index of the top-k \|φ\| sets across runs. | **Higher** | Adverse Action Notices consistently cite the same primary factors. |
+| **Reference RMSE (Fidelity)** | RMSE between each run's attributions and the high-budget reference **for the same estimand**: Shapley approaches vs the Shapley reference, Owen approaches vs the Owen reference (see below). | **Lower** | Stabilization must not move the explanation away from what the model does. |
+| **E[f] bias** | \|E_bg[f] − reference E[f]\|: how far a background's expected prediction is from the reference. A biased background shifts every attribution sum. | **Lower** | Explanations should be relative to a representative baseline. |
+| **Compute cost** | Model evaluations per explanation (coalitions × background rows) and wall-clock seconds. | — | Equal budgets are not equal cost: backgrounds are 50 (Baseline, L1, Owen), 10 (KMeans) and 100 rows (Hybrid Owen). |
+| *Efficiency gap* (sanity check) | \|Σφ − (f(x) − E_bg[f])\|, ~0 by construction; non-zero values indicate a bug. | ≈ 0 | — |
+
+### Fidelity references
+
+Owen values and Shapley values are different quantities, so each instance gets two references, computed on the **same fixed 200-row background** so that they differ only in estimand:
+
+* **Shapley reference:** KernelSHAP at shap's default budget (2M + 2048 coalitions), repeated 3 times with different seeds. `reference_noise` (the mean RMSE of the repeats from their mean) is the floor below which differences in reference RMSE are not meaningful.
+* **Owen reference:** `PartitionExplainer` with 4 × M² evaluations, enough to explore the whole hierarchy (about 1.2 × M² is needed), which makes it exact for that background. A warning is logged if any reference runs out of budget.
+
+The per-instance table also reports error against both references for every approach (`reference_rmse_shapley`, `reference_rmse_owen`) and `reference_estimand_gap`, the distance between the two references themselves, i.e. how much choosing Owen over Shapley changes the explanation regardless of estimation noise.
+
+### Equal-compute comparison
+
+`*_vs_cost.png` plots every metric against model evaluations per explanation (log scale), one line per approach through its budgets. Use it, not the per-budget tables, to compare approaches at equal compute.
+
+Each approach is compared with the baseline on the same instances with a two-sided Wilcoxon signed-rank test, Benjamini–Hochberg corrected within each metric. The number of coalitions actually evaluated is recorded for every run. For the Owen approaches the budget is PartitionExplainer's `max_evals`, which plays the same role as KernelSHAP's `nsamples`.
 
 ---
 
 ## 🔬 Benchmark Methodology
 
-1. **Step 1 — Ingestion & Missingness Audit:** Removes features with >50% missing values and logs audit tables to disk.
-2. **Step 2 — Target Construction:** Filters resolved credit outcomes (`Charged Off` vs. `Fully Paid`) for Finance, and 30-day readmissions (`<30`) for Clinical.
-3. **Step 3 — Domain Feature Selection:** Enforces strict domain feature sets while removing identifier and leakage columns.
-4. **Step 4 — Domain-Specific Encoding:** Ordinal mapping for bin categories and one-hot encoding for nominal categories.
-5. **Step 5 — Leakage-Free Splitting:** Enforces Out-of-Time temporal splitting (`SPLIT_DATE = 2014-01-01`) for Finance and stratified splitting for Clinical.
-6. **Step 6 — Scaler/Imputer Fit on Train Only:** Imputes missing values, scales continuous variables, and audits Population Stability Index (PSI) drift.
-7. **Model Training:** Fits Random Forest, Gradient Boosting, Logistic Regression, Naive Bayes, and MLP Classifiers on the training split and caches each as `src/models/saved/<domain>_<model>.joblib` (holdout AUC is logged; no selection).
-8. **Parallel SHAP Interventions:** Explains each model with all five approaches across 30 repeated runs at budgets (`nsamples`) of 20, 50, 100 and 150. Every attribution is appended to `outputs/experiments_all.csv` (long format: `domain, model, model_test_auc, budget, approach, iteration, feature, shap_value, f_x, expected_f, status`); re-running `main.py` resumes and skips completed model × budget combinations.
-9. **Comparative Analysis:** Generates pairwise difference matrices and percentage gain summaries across all strategies.
+1. **Step 1 — Ingestion & Missingness Audit:** Writes per-column audit tables. For the clinical data, the UCI value `"None"` (test not performed) in `A1Cresult` / `max_glu_serum` is restored as a category before the >50% missingness filter.
+2. **Step 2 — Target Construction:** Resolved credit outcomes (`Charged Off` vs. `Fully Paid`) for Finance; 30-day readmission (`<30`) for Clinical, excluding encounters discharged as expired or to hospice.
+3. **Step 3 — Domain Feature Selection:** Strict domain feature sets; identifier and leakage columns removed.
+4. **Step 4 — Domain-Specific Encoding:** Ordinal mapping for binned categories, one-hot encoding for nominal ones. Credit history length is computed from `earliest_cr_line` with two-digit years before 1969 corrected to the 1900s.
+5. **Step 5 — Leakage-Free Splitting:** Out-of-time split (`SPLIT_DATE = 2014-01-01`) for Finance; stratified split grouped by `patient_nbr` for Clinical, so no patient appears in both train and test.
+6. **Step 6 — Imputer/Scaler Fit on Train Only:** Median imputation and standard scaling of continuous variables; PSI drift per feature written to `outputs/tables/`.
+7. **Model Training:** All five classifiers are fitted on the training split and cached; caches fitted on a different feature set are retrained. Holdout AUC is logged, and models below `MIN_MODEL_AUC` are flagged.
+8. **Instance Selection:** For each model, `N_INSTANCES` test rows at evenly spaced quantiles of its predicted risk.
+9. **SHAP Interventions:** Each approach explains each instance `N_ITERATIONS` times at budgets of `BUDGET_MULTIPLIERS × n_features` coalitions. Every approach is reseeded identically per instance, so resampling approaches share background draws (paired design).
+10. **References:** For each model and instance, a Shapley and an Owen reference on a shared fixed background (see *Fidelity references*).
+11. **Analysis (`analyze.py`):** Per-instance metrics, summaries with CIs, baseline comparisons, metric-vs-budget and metric-vs-compute figures, and attribution boxplots with both references marked.
+
+---
+
+## ⚠️ Limitations
+
+* **The references are tied to their background.** Both are computed on one fixed 200-row background. The Shapley reference is still a sampled estimate (its noise is reported); the Owen reference is exact for that background but not for the full data distribution.
+* **Owen values are deterministic for a given background.** PartitionExplainer walks the hierarchy deterministically instead of sampling coalitions, so the Owen approaches vary only through their background: row resampling (Approach 3) or the bootstrapped K-Means summary (Approach 4). With `BOOTSTRAP_SUMMARIES = False`, Approach 4 has ACV = 0 and Jaccard = 1 *by construction*, which reflects determinism, not accuracy.
+* **Summary pool cost.** One K-Means summary per repeat is fitted on the full training set (about 2 minutes each at LendingClub size, so roughly an hour per domain for 30 repeats). The pool is cached in the run directory and reused on resume.
+* **Owen values depend on the hierarchy.** They are defined relative to the correlation tree, which is built from the training data; a different linkage or distance gives different values. When the budget runs out before the tree is fully explored, the remaining subtrees split their credit across members in proportion to size.
+* **A 1× budget is underdetermined.** At budgets near the number of varying features, the KernelSHAP regression is singular and a least-squares solution is used. That regime is included deliberately, to show low-budget behaviour.
+* **Results so far.** Earlier single-instance findings are in [docs/fix_and_rerun_report.md](docs/fix_and_rerun_report.md) and are superseded by the multi-instance design above. Every change since then, and the reason for it, is documented in [docs/changes_report.md](docs/changes_report.md).
