@@ -53,3 +53,14 @@ def test_efficiency_gap_and_reference_error():
 def test_is_degenerate():
     assert ev.is_degenerate(np.zeros((3, 4)))
     assert not ev.is_degenerate(np.eye(3))
+
+
+def test_floating_point_noise_is_not_a_significant_difference():
+    import pandas as pd
+    from src.metrics.comparative_analysis import ComparativeAnalyzer
+    base = np.linspace(0.01, 0.02, 20)
+    rows = [{"domain": "D", "model": "M", "budget": 10, "instance_id": i, "approach": a,
+             "acv": v, "jaccard": 0.5, "reference_rmse": v, "base_value_bias": v}
+            for a, vals in [("Baseline", base), ("Other", base + 1e-17)] for i, v in enumerate(vals)]
+    comparison = ComparativeAnalyzer.compare_to_baseline(pd.DataFrame(rows))
+    assert not comparison["significant"].any()

@@ -75,10 +75,14 @@ class ComparativeAnalyzer:
                     paired = pd.concat([base[metric], other[metric]], axis=1, keys=["base", "other"]).dropna()
                     if paired.empty:
                         continue
-                    diff = paired["other"] - paired["base"]
+                    # Floating-point noise counts as a tie: approaches that share a background
+                    # (e.g. Owen and Baseline) get E[f] values ~1e-17 apart, and Wilcoxon would
+                    # call that consistent sign difference significant
+                    diff = (paired["other"] - paired["base"]).mask(
+                        np.isclose(paired["other"], paired["base"], rtol=1e-9, atol=1e-12), 0.0)
                     base_mean = paired["base"].mean()
                     p_value = (
-                        stats.wilcoxon(paired["other"], paired["base"]).pvalue
+                        stats.wilcoxon(diff).pvalue
                         if len(paired) > 1 and np.any(diff != 0) else np.nan
                     )
                     rows.append({
